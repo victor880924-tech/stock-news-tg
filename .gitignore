@@ -1,0 +1,8 @@
+run_git.py
+upload_to_github.bat
+news_raw.json
+msg.txt
+send_log.txt
+__pycache__/
+*.pyc
+*.png

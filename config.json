@@ -1,0 +1,12 @@
+{
+  "telegram": {
+    "bot_token": "8561599489:AAEymG9WEk4GXRKvymJmfKwZIe2ZDq2slx4",
+    "chat_id": "7605380768"
+  },
+  "gemini": {
+    "api_key": "YOUR_GEMINI_API_KEY"
+  },
+  "news": {
+    "max_per_source": 30
+  }
+}

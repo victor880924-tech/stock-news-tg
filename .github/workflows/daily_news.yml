@@ -1,0 +1,25 @@
+name: 每日盤前新聞 → Telegram
+
+on:
+  schedule:
+    - cron: '0 1 * * 1-5'   # 台北時間 09:00（UTC+8，換算 UTC 01:00），週一至週五
+  workflow_dispatch:          # 允許手動觸發測試
+
+jobs:
+  send-news:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取得程式碼
+        uses: actions/checkout@v4
+
+      - name: 設定 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 執行新聞整理並發送 TG
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TG_BOT_TOKEN:   ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID:     ${{ secrets.TG_CHAT_ID }}
+        run: python news_tg.py
