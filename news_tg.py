@@ -1,7 +1,7 @@
 """
 盤前新聞整理 → Telegram
 爬取「昨收盤 13:30 → 今開盤前 09:00」的財經新聞，
-Claude API 分析後推送到 TG。
+Gemini API 分析後推送到 TG。
 週末自動回溯至上週五收盤。
 """
 
@@ -22,7 +22,6 @@ TZ_TAIPEI = timezone(timedelta(hours=8))
 # ── 設定 ─────────────────────────────────────────────────
 
 def load_config():
-    # GitHub Actions：從環境變數讀取
     import os as _os
     if _os.environ.get("GEMINI_API_KEY"):
         return {
@@ -33,7 +32,6 @@ def load_config():
             "gemini":   {"api_key": _os.environ["GEMINI_API_KEY"]},
             "news":     {"max_per_source": 30},
         }
-    # 本機執行：讀 config.json
     with open(os.path.join(BASE, "config.json"), encoding="utf-8") as f:
         return json.load(f)
 
@@ -94,12 +92,10 @@ def fetch_rss(url, source_name, w_start, w_end, max_items=30):
         req = urllib.request.Request(url, headers=HEADERS)
         with urllib.request.urlopen(req, timeout=15, context=make_ssl_ctx()) as resp:
             raw = resp.read()
-        # 移除 XML 不合法控制字元
         raw = re.sub(rb'[\x00-\x08\x0b\x0c\x0e-\x1f]', b'', raw)
         try:
             root = ET.fromstring(raw)
         except ET.ParseError:
-            # 二次嘗試：強制轉 utf-8 忽略錯誤
             raw = raw.decode("utf-8", errors="ignore").encode("utf-8")
             root = ET.fromstring(raw)
         for item in root.findall(".//item")[:max_items]:
@@ -127,7 +123,6 @@ def fetch_all(w_start, w_end, max_per=30):
     all_arts = []
     for url, name in RSS_SOURCES:
         all_arts.extend(fetch_rss(url, name, w_start, w_end, max_per))
-    # 去重
     seen, unique = set(), []
     for a in all_arts:
         k = a["title"][:30]
@@ -135,7 +130,7 @@ def fetch_all(w_start, w_end, max_per=30):
             seen.add(k); unique.append(a)
     return unique
 
-# ── Claude API 分析 ───────────────────────────────────────
+# ── Gemini API 分析 ───────────────────────────────────────
 
 PROMPT = """你是台股財經新聞分析師。以下是「{window_start} 至 {window_end}（台北時間）」之間發布的財經新聞。
 這段時間是上一個交易日收盤之後、今日開盤之前，屬於尚未反映於股價的新聞。
@@ -208,8 +203,8 @@ def parse_sections(output):
         data[parts[i].strip()] = parts[i + 1].strip() if i + 1 < len(parts) else ""
     return data
 
-def format_message(claude_output, w_start, w_end, n_articles):
-    d       = parse_sections(claude_output)
+def format_message(gemini_output, w_start, w_end, n_articles):
+    d       = parse_sections(gemini_output)
     trends  = d.get("TRENDS",  "（無法取得趨勢資料）")
     summary = d.get("SUMMARY", "（無法取得精華摘要）")
     links   = d.get("LINKS",   "")
@@ -267,14 +262,14 @@ def main():
     api_key = cfg.get("gemini", {}).get("api_key", "")
 
     if not api_key:
-        print("[news_tg] 錯誤：缺少 Gemini API key（config.json 或環境變數 GEMINI_API_KEY）")
+        print("[news_tg] 錯誤：缺少 Gemini API key")
         sys.exit(1)
 
     # 1. 時間窗口
     w_start, w_end = get_window()
     print(f"[news_tg] 窗口：{w_start.strftime('%m/%d %H:%M')} → {w_end.strftime('%m/%d %H:%M')}")
 
-    # 2. 抓新聞（只取時間窗口內）
+    # 2. 抓新聞
     articles = fetch_all(w_start, w_end)
     print(f"[news_tg] 未反映新聞共 {len(articles)} 則")
 
@@ -297,10 +292,10 @@ def main():
     # 3. Gemini 分析
     print("[news_tg] 呼叫 Gemini API...")
     news_text     = build_news_text(articles)
-    claude_output = call_gemini(news_text, api_key, w_start, w_end)
+    gemini_output = call_gemini(news_text, api_key, w_start, w_end)
 
     # 4. 格式化 & 發送
-    message = format_message(claude_output, w_start, w_end, len(articles))
+    message = format_message(gemini_output, w_start, w_end, len(articles))
     print("[news_tg] 發送 Telegram...")
     ok = send_tg(message, token, chat_id)
     print("[news_tg] 發送成功！" if ok else "[news_tg] 發送失敗")
