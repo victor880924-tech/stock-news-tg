@@ -278,11 +278,19 @@ def main():
     articles = fetch_all(w_start, w_end)
     print(f"[news_tg] 未反映新聞共 {len(articles)} 則")
 
+    # 備援：窗口內無新聞時，改抓最近 24 小時
     if not articles:
-        msg = (f"📊 盤前新聞觀察 ({datetime.now(TZ_TAIPEI).strftime('%Y-%m-%d')})\n"
-               f"🕐 時間窗口：{w_start.strftime('%m/%d %H:%M')} → {w_end.strftime('%m/%d %H:%M')}\n\n"
-               "⚠️ 本時段無新增財經新聞，或各來源暫時無法連線。\n"
-               "建議手動確認各財經媒體。")
+        print("[news_tg] 窗口內無新聞，備援改抓最近 24 小時...")
+        fallback_start = datetime.now(TZ_TAIPEI) - timedelta(hours=24)
+        articles = fetch_all(fallback_start, datetime.now(TZ_TAIPEI))
+        if articles:
+            w_start = fallback_start
+            w_end   = datetime.now(TZ_TAIPEI)
+            print(f"[news_tg] 備援取得 {len(articles)} 則")
+
+    if not articles:
+        msg = (f"📊 盤前新聞觀察 ({datetime.now(TZ_TAIPEI).strftime('%Y-%m-%d')})\n\n"
+               "⚠️ 各新聞來源目前無法連線，建議手動確認財經媒體。")
         send_tg(msg, token, chat_id)
         return
 
