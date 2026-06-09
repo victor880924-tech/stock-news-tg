@@ -175,33 +175,32 @@ def build_news_text(articles):
     return "\n\n".join(lines)
 
 def call_groq(news_text, api_key, w_start, w_end):
+    try:
+        import requests as _req
+    except ImportError:
+        import subprocess, sys
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "-q"])
+        import requests as _req
+
     prompt = PROMPT.format(
         window_start = w_start.strftime("%m/%d %H:%M"),
         window_end   = w_end.strftime("%m/%d %H:%M"),
         news         = news_text,
     )
-    payload = json.dumps({
-        "model":       "llama-3.3-70b-versatile",
-        "messages":    [{"role": "user", "content": prompt}],
-        "max_tokens":  2500,
-        "temperature": 0.3,
-    }).encode("utf-8")
-    req = urllib.request.Request(
+    resp = _req.post(
         "https://api.groq.com/openai/v1/chat/completions",
-        data    = payload,
-        headers = {
-            "content-type":  "application/json",
-            "authorization": f"Bearer {api_key}",
+        headers = {"Authorization": f"Bearer {api_key}"},
+        json    = {
+            "model":       "llama-3.3-70b-versatile",
+            "messages":    [{"role": "user", "content": prompt}],
+            "max_tokens":  2500,
+            "temperature": 0.3,
         },
-        method  = "POST",
+        timeout = 60,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=60, context=make_ssl_ctx()) as resp:
-            result = json.loads(resp.read())
-        return result["choices"][0]["message"]["content"]
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Groq HTTP {e.code}: {body[:300]}") from e
+    if not resp.ok:
+        raise RuntimeError(f"Groq HTTP {resp.status_code}: {resp.text[:300]}")
+    return resp.json()["choices"][0]["message"]["content"]
 
 # ── 格式化 TG 訊息 ────────────────────────────────────────
 
