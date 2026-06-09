@@ -23,13 +23,13 @@ TZ_TAIPEI = timezone(timedelta(hours=8))
 
 def load_config():
     import os as _os
-    if _os.environ.get("GEMINI_API_KEY"):
+    if _os.environ.get("GROQ_API_KEY"):
         return {
             "telegram": {
                 "bot_token": _os.environ["TG_BOT_TOKEN"],
                 "chat_id":   _os.environ["TG_CHAT_ID"],
             },
-            "gemini":   {"api_key": _os.environ["GEMINI_API_KEY"]},
+            "groq":     {"api_key": _os.environ["GROQ_API_KEY"]},
             "news":     {"max_per_source": 30},
         }
     with open(os.path.join(BASE, "config.json"), encoding="utf-8") as f:
@@ -62,11 +62,11 @@ def in_window(pub_date_str, w_start, w_end):
 # ── 新聞爬取 ──────────────────────────────────────────────
 
 RSS_SOURCES = [
-    ("https://money.udn.com/rssfeed/news/2/5590?ch=money",  "經濟日報"),
-    ("https://tw.news.yahoo.com/rss/finance",               "Yahoo財經"),
-    ("https://tw.stock.yahoo.com/rss",                      "Yahoo股市"),
-    ("https://www.moneydj.com/KMDJ/RSS/RSSFeed.aspx?svc=cn", "MoneyDJ"),
-    ("https://news.cnyes.com/rss/tw_stock_news.xml",        "鉅亨台股"),
+    ("https://money.udn.com/rssfeed/news/2/5590?ch=money",        "經濟日報"),
+    ("https://tw.news.yahoo.com/rss/finance",                     "Yahoo財經"),
+    ("https://tw.stock.yahoo.com/rss",                            "Yahoo股市"),
+    ("https://news.cnyes.com/rss/tw/tw_stock.xml",                "鉅亨台股"),
+    ("https://www.bnext.com.tw/rss",                              "數位時代"),
 ]
 
 HEADERS = {
@@ -130,7 +130,7 @@ def fetch_all(w_start, w_end, max_per=30):
             seen.add(k); unique.append(a)
     return unique
 
-# ── Gemini API 分析 ───────────────────────────────────────
+# ── Groq API 分析 ────────────────────────────────────────
 
 PROMPT = """你是台股財經新聞分析師。以下是「{window_start} 至 {window_end}（台北時間）」之間發布的財經新聞。
 這段時間是上一個交易日收盤之後、今日開盤之前，屬於尚未反映於股價的新聞。
@@ -174,25 +174,34 @@ def build_news_text(articles):
         lines.append(line)
     return "\n\n".join(lines)
 
-def call_gemini(news_text, api_key, w_start, w_end):
-    prompt  = PROMPT.format(
+def call_groq(news_text, api_key, w_start, w_end):
+    prompt = PROMPT.format(
         window_start = w_start.strftime("%m/%d %H:%M"),
         window_end   = w_end.strftime("%m/%d %H:%M"),
         news         = news_text,
     )
-    url     = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     payload = json.dumps({
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 2500, "temperature": 0.3},
+        "model":       "llama-3.3-70b-versatile",
+        "messages":    [{"role": "user", "content": prompt}],
+        "max_tokens":  2500,
+        "temperature": 0.3,
     }).encode("utf-8")
     req = urllib.request.Request(
-        url, data=payload,
-        headers={"content-type": "application/json"},
-        method="POST",
+        "https://api.groq.com/openai/v1/chat/completions",
+        data    = payload,
+        headers = {
+            "content-type":  "application/json",
+            "authorization": f"Bearer {api_key}",
+        },
+        method  = "POST",
     )
-    with urllib.request.urlopen(req, timeout=60, context=make_ssl_ctx()) as resp:
-        result = json.loads(resp.read())
-    return result["candidates"][0]["content"]["parts"][0]["text"]
+    try:
+        with urllib.request.urlopen(req, timeout=60, context=make_ssl_ctx()) as resp:
+            result = json.loads(resp.read())
+        return result["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Groq HTTP {e.code}: {body[:300]}") from e
 
 # ── 格式化 TG 訊息 ────────────────────────────────────────
 
@@ -259,10 +268,10 @@ def main():
     cfg     = load_config()
     token   = cfg["telegram"]["bot_token"]
     chat_id = cfg["telegram"]["chat_id"]
-    api_key = cfg.get("gemini", {}).get("api_key", "")
+    api_key = cfg.get("groq", {}).get("api_key", "")
 
     if not api_key:
-        print("[news_tg] 錯誤：缺少 Gemini API key")
+        print("[news_tg] 錯誤：缺少 Groq API key")
         sys.exit(1)
 
     # 1. 時間窗口
@@ -289,13 +298,13 @@ def main():
         send_tg(msg, token, chat_id)
         return
 
-    # 3. Gemini 分析
-    print("[news_tg] 呼叫 Gemini API...")
-    news_text     = build_news_text(articles)
-    gemini_output = call_gemini(news_text, api_key, w_start, w_end)
+    # 3. Groq 分析
+    print("[news_tg] 呼叫 Groq API...")
+    news_text   = build_news_text(articles[:25])
+    groq_output = call_groq(news_text, api_key, w_start, w_end)
 
     # 4. 格式化 & 發送
-    message = format_message(gemini_output, w_start, w_end, len(articles))
+    message = format_message(groq_output, w_start, w_end, len(articles))
     print("[news_tg] 發送 Telegram...")
     ok = send_tg(message, token, chat_id)
     print("[news_tg] 發送成功！" if ok else "[news_tg] 發送失敗")
