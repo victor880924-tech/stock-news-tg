@@ -17,9 +17,12 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: 安裝套件
+        run: pip install requests
+
       - name: 執行新聞整理並發送 TG
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          TG_BOT_TOKEN:   ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHAT_ID:     ${{ secrets.TG_CHAT_ID }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID:   ${{ secrets.TG_CHAT_ID }}
         run: python news_tg.py
