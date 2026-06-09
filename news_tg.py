@@ -64,12 +64,11 @@ def in_window(pub_date_str, w_start, w_end):
 # ── 新聞爬取 ──────────────────────────────────────────────
 
 RSS_SOURCES = [
-    ("https://www.cna.com.tw/rss/afinance.aspx",           "中央社財經"),
-    ("https://news.cnyes.com/rss/news.xml",                 "鉅亨網"),
-    ("https://ctee.com.tw/news/feed",                       "工商時報"),
     ("https://money.udn.com/rssfeed/news/2/5590?ch=money",  "經濟日報"),
-    ("https://ec.ltn.com.tw/rss/market.xml",                "自由財經"),
     ("https://tw.news.yahoo.com/rss/finance",               "Yahoo財經"),
+    ("https://tw.stock.yahoo.com/rss",                      "Yahoo股市"),
+    ("https://www.moneydj.com/KMDJ/RSS/RSSFeed.aspx?svc=cn", "MoneyDJ"),
+    ("https://news.cnyes.com/rss/tw_stock_news.xml",        "鉅亨台股"),
 ]
 
 HEADERS = {
@@ -95,7 +94,14 @@ def fetch_rss(url, source_name, w_start, w_end, max_items=30):
         req = urllib.request.Request(url, headers=HEADERS)
         with urllib.request.urlopen(req, timeout=15, context=make_ssl_ctx()) as resp:
             raw = resp.read()
-        root  = ET.fromstring(raw)
+        # 移除 XML 不合法控制字元
+        raw = re.sub(rb'[\x00-\x08\x0b\x0c\x0e-\x1f]', b'', raw)
+        try:
+            root = ET.fromstring(raw)
+        except ET.ParseError:
+            # 二次嘗試：強制轉 utf-8 忽略錯誤
+            raw = raw.decode("utf-8", errors="ignore").encode("utf-8")
+            root = ET.fromstring(raw)
         for item in root.findall(".//item")[:max_items]:
             pub_date = item.findtext("pubDate") or ""
             if not in_window(pub_date, w_start, w_end):
